@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-950 text-gray-100 antialiased m-0;
+  }
+  #root {
+    @apply w-full min-h-screen;
+  }
+}
+
+/* ReactFlow dark theme overrides */
+.react-flow__node { @apply font-sans text-sm; }
+.react-flow__edge-path { stroke: #4b5563; }
+.react-flow__controls { @apply bg-gray-800 border-gray-700; }
+.react-flow__minimap { @apply bg-gray-900; }

@@ -1,0 +1,18 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-dotenv==1.0.1
+pydantic==2.10.3
+pydantic-settings==2.7.0
+httpx==0.28.1
+asyncpg==0.30.0
+
+# Microsoft Agent Framework
+agent-framework-core --pre
+agent-framework-orchestrations --pre
+agent-framework-declarative --pre
+agent-framework-ag-ui --pre
+agent-framework-mem0 --pre
+agent-framework-durabletask --pre
+agent-framework-openai --pre
+agent-framework-anthropic --pre
+agent-framework-gemini --pre

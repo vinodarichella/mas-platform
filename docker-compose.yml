@@ -1,0 +1,74 @@
+version: '3.9'
+
+services:
+
+  # ── PostgreSQL (with pgvector) ─────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mas-postgres
+    environment:
+      POSTGRES_DB:       mas_platform
+      POSTGRES_USER:     mas
+      POSTGRES_PASSWORD: mas
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mas -d mas_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Python Execution Engine ────────────────────────────────────────────────
+  execution-engine:
+    build:
+      context: ./execution-engine
+      dockerfile: Dockerfile
+    container_name: mas-engine
+    ports:
+      - "8001:8001"
+    environment:
+      ENVIRONMENT:              development
+      DATABASE_URL_SYNC:        postgresql://mas:mas@postgres:5432/mas_platform
+      JAVA_BACKEND_URL:         http://backend-api:8080
+      INTERNAL_API_KEY:         ${INTERNAL_API_KEY:-change-me}
+      # Azure OpenAI (primary)
+      AZURE_OPENAI_API_KEY:     ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_ENDPOINT:    ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-02-01}
+      # Databricks (OpenAI-compatible)
+      DATABRICKS_HOST:          ${DATABRICKS_HOST:-}
+      DATABRICKS_TOKEN:         ${DATABRICKS_TOKEN:-}
+      # Optional extras
+      OPENAI_API_KEY:           ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY:        ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Java + React (single JAR) ──────────────────────────────────────────────
+  backend-api:
+    build:
+      context: ./backend-api
+      dockerfile: Dockerfile
+    container_name: mas-api
+    ports:
+      - "8080:8080"
+    environment:
+      DB_URL:           jdbc:postgresql://postgres:5432/mas_platform
+      DB_USERNAME:      mas
+      DB_PASSWORD:      mas
+      JWT_SECRET:       ${JWT_SECRET:-change-me-in-production-use-256-bit-key}
+      ENGINE_URL:       http://execution-engine:8001
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-change-me}
+      CORS_ORIGINS:     http://localhost:5173,http://localhost:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
