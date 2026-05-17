@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import ReactFlow, { Background, Controls, MiniMap, ReactFlowProvider } from 'reactflow'
+import ReactFlow, { Background, MiniMap, ReactFlowProvider } from 'reactflow'
 import 'reactflow/dist/style.css'
 import {
   LayoutTemplate, Search, GitBranch, Plus, X, Loader2,

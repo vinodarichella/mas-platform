@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(mvn compile *)",
+      "Read(//opt/homebrew/bin/**)",
+      "Read(//Users/vinod/.sdkman/candidates/maven/current/bin/**)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('node:', d.get\\('engines',{}\\).get\\('node','not set'\\)\\); print\\('scripts:', list\\(d.get\\('scripts',{}\\).keys\\(\\)\\)\\)\")"
+    ]
+  }
+}

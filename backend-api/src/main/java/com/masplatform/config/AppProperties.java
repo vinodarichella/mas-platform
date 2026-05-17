@@ -16,6 +16,7 @@ public class AppProperties {
     private Jwt jwt = new Jwt();
     private ExecutionEngine executionEngine = new ExecutionEngine();
     private Cors cors = new Cors();
+    private RateLimit rateLimit = new RateLimit();
 
     @Getter @Setter
     public static class Jwt {
@@ -32,5 +33,12 @@ public class AppProperties {
     @Getter @Setter
     public static class Cors {
         private List<String> allowedOrigins = List.of("http://localhost:5173");
+    }
+
+    @Getter @Setter
+    public static class RateLimit {
+        private boolean enabled         = true;
+        private int     chatPerMinute   = 10;
+        private int     generalPerMinute = 100;
     }
 }

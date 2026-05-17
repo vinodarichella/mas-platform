@@ -28,12 +28,21 @@ public class SessionService {
     }
 
     @Transactional
-    public SessionDto createSession(UUID userId, String name) {
+    public SessionDto createSession(UUID userId, String name, UUID workflowId) {
         User user = userRepo.getReferenceById(userId);
         Session session = Session.builder()
                 .user(user)
                 .name(name != null && !name.isBlank() ? name : "New Session")
+                .workflowId(workflowId)
                 .build();
+        return toDto(sessionRepo.save(session));
+    }
+
+    @Transactional
+    public SessionDto bindWorkflow(UUID sessionId, UUID userId, UUID workflowId) {
+        Session session = sessionRepo.findByIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        session.setWorkflowId(workflowId);
         return toDto(sessionRepo.save(session));
     }
 

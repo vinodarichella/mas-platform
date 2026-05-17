@@ -29,8 +29,22 @@ public class SessionController {
     @ResponseStatus(HttpStatus.CREATED)
     public SessionDto createSession(@AuthenticationPrincipal UserDetails user,
                                     @RequestBody(required = false) Map<String, String> body) {
-        String name = body != null ? body.get("name") : null;
-        return sessionService.createSession(UUID.fromString(user.getUsername()), name);
+        UUID userId = UUID.fromString(user.getUsername());
+        String name       = body != null ? body.get("name")       : null;
+        String workflowId = body != null ? body.get("workflowId") : null;
+        return sessionService.createSession(userId, name,
+                workflowId != null && !workflowId.isBlank() ? UUID.fromString(workflowId) : null);
+    }
+
+    /** Bind or unbind a workflow from a session. Pass null workflowId to unbind. */
+    @PutMapping("/{id}/workflow")
+    public SessionDto bindWorkflow(@PathVariable UUID id,
+                                   @AuthenticationPrincipal UserDetails user,
+                                   @RequestBody Map<String, String> body) {
+        UUID userId = UUID.fromString(user.getUsername());
+        String wfId = body.get("workflowId");
+        UUID workflowId = wfId != null && !wfId.isBlank() ? UUID.fromString(wfId) : null;
+        return sessionService.bindWorkflow(id, userId, workflowId);
     }
 
     @GetMapping("/{id}")

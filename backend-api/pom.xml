@@ -74,6 +74,30 @@
       <scope>runtime</scope>
     </dependency>
 
+    <!-- ── Rate limiting ────────────────────────────────────────────── -->
+    <dependency>
+      <groupId>com.bucket4j</groupId>
+      <artifactId>bucket4j-core</artifactId>
+      <version>8.10.1</version>
+    </dependency>
+
+    <!-- ── Circuit breaker ──────────────────────────────────────────── -->
+    <dependency>
+      <groupId>io.github.resilience4j</groupId>
+      <artifactId>resilience4j-spring-boot3</artifactId>
+      <version>2.2.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-aop</artifactId>
+    </dependency>
+
+    <!-- ── Actuator (health probes + metrics) ───────────────────────── -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+
     <!-- ── Utilities ────────────────────────────────────────────────── -->
     <dependency>
       <groupId>org.projectlombok</groupId>

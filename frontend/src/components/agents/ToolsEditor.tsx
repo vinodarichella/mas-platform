@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { Plus, Trash2, Wrench, Server, Globe } from 'lucide-react'
+import { Trash2, Wrench, Server, Globe } from 'lucide-react'
 import type { Tool } from '@/api/agents'
-import { clsx } from 'clsx'
 
 interface Props {
   tools: Tool[]

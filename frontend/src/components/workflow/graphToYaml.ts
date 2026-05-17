@@ -71,7 +71,6 @@ export function graphToYaml(
 ): string {
   const sorted      = topoSort(nodes, edges)
   const agentNodes  = sorted.filter(n => n.type === 'agent')
-  const startNode   = nodes.find(n => n.type === 'start')
   const lines: string[] = []
 
   lines.push(`orchestration_type: ${orchestrationType}`)

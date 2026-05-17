@@ -1,9 +1,12 @@
 package com.masplatform.session;
 
+import com.masplatform.agent.Agent;
 import com.masplatform.agent.AgentRepository;
 import com.masplatform.agent.AgentService;
 import com.masplatform.agent.dto.AgentDto;
 import com.masplatform.config.AppProperties;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import com.masplatform.run.Run;
 import com.masplatform.run.RunEvent;
 import com.masplatform.run.RunEventRepository;
@@ -12,6 +15,8 @@ import com.masplatform.session.dto.ChatRequest;
 import com.masplatform.session.dto.ChatResponse;
 import com.masplatform.user.User;
 import com.masplatform.user.UserRepository;
+import com.masplatform.workflow.Workflow;
+import com.masplatform.workflow.WorkflowRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
@@ -31,12 +36,15 @@ import java.util.*;
 public class ChatService {
 
     private final SessionService      sessionService;
+    private final SessionRepository   sessionRepo;
     private final RunRepository       runRepo;
     private final RunEventRepository  runEventRepo;
     private final UserRepository      userRepo;
     private final AgentRepository     agentRepo;
     private final AgentService        agentService;
+    private final WorkflowRepository  workflowRepo;
     private final AppProperties       props;
+    private final CircuitBreaker      engineCircuitBreaker;
 
     // ── Interactive session chat ───────────────────────────────────────────────
 
@@ -60,15 +68,35 @@ public class ChatService {
         List<Map<String, String>> history = sessionService.getHistoryForEngine(sessionId, 20);
         User user = userRepo.findById(userId).orElseThrow();
         Map<String, Object> prefs = user.getPreferences() != null ? user.getPreferences() : Map.of();
-        Map<String, Object> agentConfig = resolveAgentConfig(req.getAgentId(), userId);
 
-        // Max duration: use agent config if available, else default
-        int maxMinutes = resolveMaxDuration(agentConfig, req.isBackground());
+        // Check if session has a bound workflow
+        UUID boundWorkflowId = sessionRepo.findById(sessionId)
+                .map(Session::getWorkflowId).orElse(null);
 
-        Map<String, Object> payload = buildPayload(
-                run.getId(), sessionId, userId, req.getMessage(),
-                agentConfig, history, prefs, jobType
-        );
+        Map<String, Object> payload;
+        int maxMinutes;
+
+        if (boundWorkflowId != null) {
+            Workflow workflow = workflowRepo.findByIdAndUserId(boundWorkflowId, userId).orElse(null);
+            if (workflow != null) {
+                List<Map<String, Object>> agentConfigs = extractAgentConfigs(workflow, userId);
+                payload = buildWorkflowPayload(run.getId(), sessionId, userId, req.getMessage(),
+                        workflow, agentConfigs, history, prefs, jobType);
+                maxMinutes = req.isBackground() ? 480 : 30;
+            } else {
+                // Bound workflow deleted — fall back gracefully
+                log.warn("Session {} has dangling workflowId {} — falling back to default agent", sessionId, boundWorkflowId);
+                Map<String, Object> agentConfig = resolveAgentConfig(req.getAgentId(), userId);
+                maxMinutes = resolveMaxDuration(agentConfig, req.isBackground());
+                payload = buildPayload(run.getId(), sessionId, userId, req.getMessage(),
+                        agentConfig, history, prefs, jobType);
+            }
+        } else {
+            Map<String, Object> agentConfig = resolveAgentConfig(req.getAgentId(), userId);
+            maxMinutes = resolveMaxDuration(agentConfig, req.isBackground());
+            payload = buildPayload(run.getId(), sessionId, userId, req.getMessage(),
+                    agentConfig, history, prefs, jobType);
+        }
 
         if (req.isBackground()) {
             fireBackgroundJob(run.getId(), sessionId, payload, maxMinutes);
@@ -122,8 +150,13 @@ public class ChatService {
 
         try {
             runRepo.findById(runId).ifPresent(r -> { r.setStatus("running"); runRepo.save(r); });
-            rest.exchange(url, HttpMethod.POST, new HttpEntity<>(payload, headers), Map.class);
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
+            engineCircuitBreaker.executeRunnable(
+                    () -> rest.exchange(url, HttpMethod.POST, request, Map.class));
             waitForCompletionAndSaveResponse(runId, sessionId, maxMinutes);
+        } catch (CallNotPermittedException e) {
+            log.error("Circuit breaker OPEN — engine unavailable for run {}", runId);
+            failRun(runId, "Execution engine temporarily unavailable. Please try again later.");
         } catch (Exception e) {
             log.error("Engine call failed for run {}: {}", runId, e.getMessage());
             failRun(runId, e.getMessage());
@@ -143,9 +176,14 @@ public class ChatService {
 
         try {
             runRepo.findById(runId).ifPresent(r -> { r.setStatus("running"); runRepo.save(r); });
-            rest.exchange(url, HttpMethod.POST, new HttpEntity<>(jobPayload, headers), Map.class);
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(jobPayload, headers);
+            engineCircuitBreaker.executeRunnable(
+                    () -> rest.exchange(url, HttpMethod.POST, request, Map.class));
             // For background jobs, wait up to maxMinutes for completion to persist the message
             waitForCompletionAndSaveResponse(runId, sessionId, maxMinutes);
+        } catch (CallNotPermittedException e) {
+            log.error("Circuit breaker OPEN — engine unavailable for background run {}", runId);
+            failRun(runId, "Execution engine temporarily unavailable. Please try again later.");
         } catch (Exception e) {
             log.error("Background job call failed for run {}: {}", runId, e.getMessage());
             failRun(runId, e.getMessage());
@@ -202,6 +240,100 @@ public class ChatService {
                 "tools",        List.of(),
                 "max_run_duration_minutes", 30
         );
+    }
+
+    /** Build engine payload for a workflow-bound session. */
+    private Map<String, Object> buildWorkflowPayload(
+            UUID runId, UUID sessionId, UUID userId, String message,
+            Workflow workflow,
+            List<Map<String, Object>> agentConfigs,
+            List<Map<String, String>> history,
+            Map<String, Object> prefs,
+            String jobType) {
+
+        // workflow_config.agents maps each agent config id → alias for the orchestrator
+        List<Map<String, Object>> agentRefs = agentConfigs.stream()
+                .map(c -> Map.<String, Object>of(
+                        "ref",   c.getOrDefault("id", ""),
+                        "alias", c.getOrDefault("alias", c.getOrDefault("name", ""))))
+                .toList();
+
+        Map<String, Object> workflowConfig = new LinkedHashMap<>();
+        workflowConfig.put("id",                 workflow.getId().toString());
+        workflowConfig.put("name",               workflow.getName());
+        workflowConfig.put("orchestration_type", workflow.getOrchestrationType());
+        workflowConfig.put("agents",             agentRefs);
+        workflowConfig.put("yaml_content",       workflow.getYamlContent() != null ? workflow.getYamlContent() : "");
+
+        return Map.of(
+                "run_id",               runId.toString(),
+                "workflow_id",          workflow.getId().toString(),
+                "user_id",              userId.toString(),
+                "session_id",           sessionId != null ? sessionId.toString() : "",
+                "workflow_config",      workflowConfig,
+                "agent_configs",        agentConfigs,
+                "inputs",               Map.of("message", message),
+                "conversation_history", history,
+                "user_memory",          List.of(),
+                "user_preferences",     prefs,
+                "job_type",             jobType
+        );
+    }
+
+    /**
+     * Extract agent configs from a workflow's graph JSON nodes.
+     * Nodes with a valid agentId UUID are looked up in the DB.
+     * Nodes without a real agent get a synthetic config using their alias + instructions.
+     */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> extractAgentConfigs(Workflow workflow, UUID userId) {
+        Map<String, Object> graphJson = workflow.getGraphJson();
+        if (graphJson == null) return List.of(defaultAgentConfig());
+
+        List<?> rawNodes = (List<?>) graphJson.getOrDefault("nodes", List.of());
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        for (Object rawNode : rawNodes) {
+            if (!(rawNode instanceof Map<?, ?> node)) continue;
+            if (!"agent".equals(node.get("type"))) continue;
+
+            Object rawData = node.get("data");
+            Map<String, Object> data = rawData instanceof Map<?, ?> m
+                    ? (Map<String, Object>) m : Map.of();
+
+            String agentIdStr    = (String) data.get("agentId");
+            String alias         = (String) data.getOrDefault("alias", node.get("id"));
+            String instructions  = (String) data.getOrDefault("instructions", "");
+
+            if (agentIdStr != null && !agentIdStr.isBlank()) {
+                try {
+                    UUID agentId = UUID.fromString(agentIdStr);
+                    Optional<Agent> found = agentRepo.findByIdAndUserId(agentId, userId);
+                    if (found.isPresent()) {
+                        Map<String, Object> cfg = new LinkedHashMap<>(agentService.toEngineConfig(found.get()));
+                        cfg.put("alias", alias);
+                        if (instructions != null && !instructions.isBlank()) {
+                            cfg.put("instructions", instructions);
+                        }
+                        result.add(cfg);
+                        continue;
+                    }
+                } catch (IllegalArgumentException ignored) {}
+            }
+
+            // Synthetic agent from node data (no real agent ID, or agent not found)
+            Map<String, Object> synthetic = new LinkedHashMap<>(defaultAgentConfig());
+            String safeAlias = (alias != null && !alias.isBlank()) ? alias : "assistant";
+            synthetic.put("id",   safeAlias);
+            synthetic.put("name", safeAlias);
+            synthetic.put("alias", safeAlias);
+            if (instructions != null && !instructions.isBlank()) {
+                synthetic.put("instructions", instructions);
+            }
+            result.add(synthetic);
+        }
+
+        return result.isEmpty() ? List.of(defaultAgentConfig()) : result;
     }
 
     private Map<String, Object> buildPayload(

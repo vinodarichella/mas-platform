@@ -24,9 +24,12 @@ export interface ChatResponse {
 
 export const sessionsApi = {
   list: ()                          => api.get<Session[]>('/sessions').then(r => r.data),
-  create: (name: string)            => api.post<Session>('/sessions', { name }).then(r => r.data),
+  create: (name: string, workflowId?: string) =>
+    api.post<Session>('/sessions', { name, workflowId }).then(r => r.data),
   get: (id: string)                 => api.get<Session>(`/sessions/${id}`).then(r => r.data),
   delete: (id: string)              => api.delete(`/sessions/${id}`),
+  bindWorkflow: (id: string, workflowId: string | null) =>
+    api.put<Session>(`/sessions/${id}/workflow`, { workflowId }).then(r => r.data),
   messages: (id: string)            => api.get<ChatMessage[]>(`/sessions/${id}/messages`).then(r => r.data),
   chat: (id: string, message: string, background = false) =>
     api.post<ChatResponse>(`/sessions/${id}/chat`, { message, background }).then(r => r.data),

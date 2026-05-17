@@ -39,6 +39,33 @@ app:
     internal-api-key: ${INTERNAL_API_KEY:change-me-in-production}
   cors:
     allowed-origins: ${CORS_ORIGINS:http://localhost:5173,http://localhost:8080}
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    chat-per-minute: ${RATE_LIMIT_CHAT:10}
+    general-per-minute: ${RATE_LIMIT_GENERAL:100}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      engine:
+        failureRateThreshold: 50
+        minimumNumberOfCalls: 5
+        waitDurationInOpenState: 60s
+        permittedNumberOfCallsInHalfOpenState: 2
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers,circuitbreakerevents
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
 
 logging:
   level:

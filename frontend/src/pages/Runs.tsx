@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
   Activity, CheckCircle2, XCircle, Clock, AlertCircle,
-  PauseCircle, ChevronDown, ChevronRight, X, RefreshCw,
+  PauseCircle, ChevronRight, X, RefreshCw,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { runsApi, type Run } from '@/api/runs'
@@ -187,7 +187,6 @@ function RunRow({ run, onSelect }: { run: Run; onSelect: () => void }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function Runs() {
-  const qc = useQueryClient()
   const [selected, setSelected] = useState<Run | null>(null)
   const [filter,   setFilter]   = useState<string>('all')
 
@@ -201,11 +200,6 @@ export function Runs() {
       )
       return active ? 5_000 : false
     },
-  })
-
-  const cancelMut = useMutation({
-    mutationFn: runsApi.cancel,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['runs'] }),
   })
 
   const filterOptions = [
